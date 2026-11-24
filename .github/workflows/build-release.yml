@@ -1,4 +1,4 @@
-name: Build and Release Kernel
+name: Build and Release Kernel (Droidspaces)
 permissions:
   contents: write
   actions: write
@@ -37,19 +37,21 @@ jobs:
       REPO_OWNER: lgxtt                       # ← 按你的实际情况核对（日志里你的仓库是 lgxtt）
       REPO_NAME: NonGKI_Kernel_Build_2nd      # ← 按你的实际情况核对
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_NAME: "Pre-built LinkFix (LLD linked, Non-GKI, SUSFS off)"
+      RELEASE_NAME: "Pre-built Droidspaces (LLD linked, Non-GKI, SUSFS off, containers enabled)"
       RELEASE_NOTES: |
         Below is the codename reference table. Please select the image or archive you need based on this table.
 
         | Device Name | Codename | Kernel | System | Android | Method | KernelSU | SUSFS | Defconfig Source |
         |----------|----------|----------|----------|----------|----------|----------|----------|----------|
-        | Redmi 10X 4G / Redmi Note 9 | merlin | 4.14 (stock defconfig) | MIUI 12.5.3.0 | 11 | MKBOOTIMG | BakaSU | ❌ off | stock defconfig text (direct URL) |
+        | Redmi 10X 4G / Redmi Note 9 | merlin | 4.14 (stock defconfig) | MIUI 12.5.3.0 | 11 | MKBOOTIMG | KernelSU-Next legacy | ❌ off | stock defconfig text (direct URL) |
 
-        - This is the **LinkFix** build: fixes the vmlinux link-stage `relocation truncated to fit` error by linking with LLD.
+        - This is the **Droidspaces** build: enables Linux container/LXC support on top of all previous fixes.
         - Fix 1: custom step downloads extracted 4.14.186 stock defconfig by ABSOLUTE path (framework's Get DEFCONFIG hardcodes a broken nested path device_kernel/device_kernel/... -> curl (23); DEFCONFIG_SOURCE is left empty to skip it).
-        - Fix 2: SUSFS disabled by default (v1.5.5 patch produced .rej on eleven/4.14.248). KernelSU root still works.
+        - Fix 2: SUSFS disabled by default (incompatible with Droidspaces; v1.5.5 also produced .rej on eleven/4.14.248). KernelSU root still works.
         - Fix 3: KernelSU fork switched bakasu -> KernelSU-Next legacy (Non-GKI compatible).
-        - Fix 4 (this version): added `LD=ld.lld` to EXTRA_CMDS so the kernel links with LLD (GNU bfd ld caused relocation truncated to fit on __start_builtin_fw).
+        - Fix 4: added `LD=ld.lld` to EXTRA_CMDS so the kernel links with LLD (GNU bfd ld caused relocation truncated to fit on __start_builtin_fw).
+        - Fix 5: restored WiFi/BT connectivity configs lost by IKCONFIG extraction (MTK_COMBO_BT / BT / WLAN_DRV_BUILD_IN).
+        - Fix 6 (this version): DROIDSPACES_ENABLE=true. Framework merges its droidspaces.config + 2 cocci patches automatically; requires SUSFS off + Magic Mount (not OverlayFS) + working root.
         - Full boot.img via MKBOOTIMG, inherits stock cmdline/addresses/dtb. OLD_ANDROID_SUPPORT applied.
         - Flash via fastboot; AVB must be disabled first (see README).
     steps:

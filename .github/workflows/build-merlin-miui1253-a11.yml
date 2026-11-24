@@ -1,4 +1,4 @@
-name: Build Merlin MIUI 12.5.3.0 Kernel (A11)
+name: Build Merlin MIUI 12.5.3.0 Kernel (A11) - Droidspaces
 on:
   workflow_call:
   workflow_dispatch:
@@ -7,7 +7,7 @@ env:
   # ---------- 设备标识与产物命名 ----------
   DEVICE_NAME: "merlin"
   DEVICE_CODENAME: "merlin"
-  ROM_TEXT: "miui_12.5.3_a11_wifibtfix"     # 第八版（补回 IKCONFIG 提取丢失的 WiFi/蓝牙驱动配置）
+  ROM_TEXT: "miui_12.5.3_a11_droidspaces"   # 第九版（开启 Droidspaces 容器支持，继承 WifiBtFix 全部修复）
 
   # ---------- ★ 编译修复①：原厂 defconfig 用"直链文本"而非从 boot 现场提取 ----------
   # 【为什么改】第三版用 DEFCONFIG_FROM_BOOT: true，但框架的 build-ready 里是
@@ -53,7 +53,7 @@ env:
   # 【如何生效】内核 Makefile: `ld-name = $(shell $(LD) -v | grep LLD)`，
   #   传 LD=ld.lld → ld-name=lld → 触发 `KBUILD_CFLAGS += -fuse-ld=lld` → 用 LLD 链接。
   #   proton-clang 自带 ld.lld，PATH 已含 clang-custom/bin（框架已设置）。
-  EXTRA_CMDS: "LOCALVERSION=-Merlin-12.5.3-WifiBtFix LD=ld.lld"   # ← 保留 LLD 链接修复 + 新版本标识
+  EXTRA_CMDS: "LOCALVERSION=-Merlin-12.5.3-Droidspaces LD=ld.lld"   # ← 保留 LLD 链接修复 + 新版本标识
   GCC_GNU: false
   GCC_64_SOURCE: ""
   GCC_64_BRANCH: ""
@@ -96,7 +96,16 @@ env:
 
   # ---------- 功能模块开关 ----------
   REKERNEL_ENABLE: "false"
-  DROIDSPACES_ENABLE: "false"
+  # 【第九版核心改动】开启 Droidspaces（Linux 容器/LXC 运行时）支持。
+  # 框架链路已核实完整：
+  #   1) patch-droidspaces action 会把自带的 droidspaces.config(126 行) 拷进内核 configs/，
+  #      并打两个 cocci 补丁（xt_qtaguid 内核崩溃、cgroup 文件前缀），仅当此值为 true 时执行；
+  #   2) build-process 会用 merge_config.sh 把 droidspaces.config 合并进 out/.config，
+  #      再跑 olddefconfig 自动解析依赖 → 原厂 defconfig 缺失的 IPC_NS/CGROUP_DEVICE/
+  #      NF_TABLES/DEVTMPFS 等约 20 项会被自动补齐，无需手动改 defconfig。
+  # 【前置条件】SUSFS 必须保持 false（官方明确不兼容）；KernelSU 用 Magic Mount 而非 OverlayFS
+  #   （当前 HOOK_METHOD:syscall + manual hook 符合）；需要 root 可用（已验证）。
+  DROIDSPACES_ENABLE: "true"                 # ← 关键：开启容器支持
   NOMOUNT_ENABLE: "false"
   FGETPRIORITY_ENABLE: "false"
   VPNHIDE_ENABLE: "false"
@@ -123,7 +132,7 @@ env:
 
 jobs:
   build-kernel:
-    name: Redmi 10X 4G (MIUI 12.5.3 / A11) WifiBtFix
+    name: Redmi 10X 4G (MIUI 12.5.3 / A11) Droidspaces
     runs-on: ubuntu-24.04
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
@@ -157,7 +166,7 @@ jobs:
         uses: ./.github/workflows/patch-susfs
       - name: 🔗 Patch for no-kprobe
         uses: ./.github/workflows/patch-no-kprobe
-      - name: 🪛 Extra Kernel Options (K419 + BuildFix + KSU-Next + LinkFix + WifiBtFix)
+      - name: 🪛 Extra Kernel Options (K419 + BuildFix + KSU-Next + LinkFix + WifiBtFix + Droidspaces)
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
           DEFCONFIG="arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}"
