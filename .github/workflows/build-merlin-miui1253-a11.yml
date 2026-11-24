@@ -1,4 +1,4 @@
-name: Build Merlin MIUI 12.5.3.0 Kernel (A11) - KSU-Next
+name: Build Merlin MIUI 12.5.3.0 Kernel (A11) - LinkFix
 on:
   workflow_call:
   workflow_dispatch:
@@ -7,7 +7,7 @@ env:
   # ---------- 设备标识与产物命名 ----------
   DEVICE_NAME: "merlin"
   DEVICE_CODENAME: "merlin"
-  ROM_TEXT: "miui_12.5.3_a11_ksunext"       # 第六版（换 KernelSU-Next legacy，修 TP Hook 冲突）
+  ROM_TEXT: "miui_12.5.3_a11_linkfix"       # 第七版（LLD 链接修复：relocation truncated）
 
   # ---------- ★ 编译修复①：原厂 defconfig 用"直链文本"而非从 boot 现场提取 ----------
   # 【为什么改】第三版用 DEFCONFIG_FROM_BOOT: true，但框架的 build-ready 里是
@@ -44,7 +44,16 @@ env:
   CLANG_SOURCE: "https://github.com/kdrag0n/proton-clang.git"
   CLANG_BRANCH: "master"
   CUSTOM_CMDS: "CLANG_TRIPLE=aarch64-linux-gnu- SUBARCH=arm64"
-  EXTRA_CMDS: "LOCALVERSION=-Merlin-12.5.3-KSUNext"
+  # 【第七版核心修复④】用 LLD 链接，修 relocation truncated to fit 错误。
+  # 【为什么】第六版编译到最后 LD vmlinux 阶段报：
+  #   drivers/base/firmware_class.c: relocation truncated to fit:
+  #   R_AARCH64_LDST64_ABS_LO12_NC against symbol `__start_builtin_fw'
+  #   根因：框架 make 命令没传 LLVM/LD，链接用的是 CROSS_COMPILE 的 aarch64-linux-gnu-ld（GNU bfd），
+  #   它对 MTK 老内核里的大量 builtin firmware 数组做不出正确的页内重定位；原厂内核是用 LLD 编译的。
+  # 【如何生效】内核 Makefile: `ld-name = $(shell $(LD) -v | grep LLD)`，
+  #   传 LD=ld.lld → ld-name=lld → 触发 `KBUILD_CFLAGS += -fuse-ld=lld` → 用 LLD 链接。
+  #   proton-clang 自带 ld.lld，PATH 已含 clang-custom/bin（框架已设置）。
+  EXTRA_CMDS: "LOCALVERSION=-Merlin-12.5.3-LinkFix LD=ld.lld"   # ← 关键：追加 LD=ld.lld
   GCC_GNU: false
   GCC_64_SOURCE: ""
   GCC_64_BRANCH: ""
@@ -114,7 +123,7 @@ env:
 
 jobs:
   build-kernel:
-    name: Redmi 10X 4G (MIUI 12.5.3 / A11) KSU-Next
+    name: Redmi 10X 4G (MIUI 12.5.3 / A11) LinkFix
     runs-on: ubuntu-24.04
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
@@ -148,7 +157,7 @@ jobs:
         uses: ./.github/workflows/patch-susfs
       - name: 🔗 Patch for no-kprobe
         uses: ./.github/workflows/patch-no-kprobe
-      - name: 🪛 Extra Kernel Options (K419 optimizations + BuildFix + KSU-Next)
+      - name: 🪛 Extra Kernel Options (K419 optimizations + BuildFix + KSU-Next + LinkFix)
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
           DEFCONFIG="arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}"
