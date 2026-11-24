@@ -1,4 +1,4 @@
-name: Build and Release Kernel (Stock Aligned)
+name: Build and Release Kernel (BuildFix)
 permissions:
   contents: write
   actions: write
@@ -34,22 +34,22 @@ jobs:
       - build-kernel
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release-kernel == true)
     env:
-      REPO_OWNER: lgxtt        # ← 改成你的 GitHub 用户名
-      REPO_NAME: NonGKI_Kernel_Build_2nd        # ← 改成你 fork 后的仓库名
+      REPO_OWNER: lgxtt                       # ← 按你的实际情况核对（日志里你的仓库是 lgxtt）
+      REPO_NAME: NonGKI_Kernel_Build_2nd      # ← 按你的实际情况核对
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_NAME: "Pre-built Stock Aligned"
+      RELEASE_NAME: "Pre-built BuildFix (SUSFS off, stock defconfig)"
       RELEASE_NOTES: |
         Below is the codename reference table. Please select the image or archive you need based on this table.
 
         | Device Name | Codename | Kernel | System | Android | Method | KernelSU | SUSFS | Defconfig Source |
         |----------|----------|----------|----------|----------|----------|----------|----------|----------|
-        | Redmi 10X 4G / Redmi Note 9 | merlin | 4.14.186 (stock config) | MIUI 12.5.3.0 | 11 | MKBOOTIMG | BakaSU | ✅ | extracted from stock boot |
+        | Redmi 10X 4G / Redmi Note 9 | merlin | 4.14 (stock defconfig) | MIUI 12.5.3.0 | 11 | MKBOOTIMG | BakaSU | ❌ off | stock defconfig text (direct URL) |
 
-        - This is the **Stock Aligned** build: defconfig extracted directly from the stock boot.img (real 4.14.186 config), packed as a **full boot.img** inheriting stock cmdline/addresses/dtb.
-        - OLD_ANDROID_SUPPORT applied (stock config already has CONFIG_SDCARD_FS=y).
-        - Flash the full boot.img via fastboot; AVB must be disabled first (see README).
-        - Specific device information: [Supported List](Supported_list.md).
-        - The KernelSU version is for reference only. It is normal for the KernelSU version embedded in SUSFS to be lower.
+        - This is the **BuildFix** build: fixes two compile errors of the Stock Aligned version.
+        - Fix 1: use DEFCONFIG_SOURCE (direct URL to extracted 4.14.186 stock defconfig) instead of the broken DEFCONFIG_FROM_BOOT (framework's `-f URL` check always fails).
+        - Fix 2: SUSFS disabled by default (v1.5.5 patch produced .rej on eleven/4.14.248 -> task_mmu.c SUSFS_IS_INODE_* implicit declaration). KernelSU root still works.
+        - Full boot.img via MKBOOTIMG, inherits stock cmdline/addresses/dtb. OLD_ANDROID_SUPPORT applied.
+        - Flash via fastboot; AVB must be disabled first (see README).
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -74,24 +74,8 @@ jobs:
           echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
           git tag $NEW_TAG
           git push --tags
-          git clone -b master https://github.com/backslashxx/KernelSU.git KernelSU-xxKSU
-          KSU_XXKSU_VERSION=$(cd KernelSU-xxKSU && expr $(/usr/bin/git rev-list --count HEAD) + 30000 - 80)
-          git clone -b main https://github.com/rsuntk/KernelSU.git KernelSU-rsuntk
-          KSU_RSUNTK_VERSION=$(cd KernelSU-rsuntk && expr $(/usr/bin/git rev-list --count HEAD) + 29971)
-          git clone -b builtin https://github.com/SukiSU-Nova/SukiSU-Nova.git KernelSU-SukiSU-Nova
-          KSU_SUKISU_ULTRA_VERSION=$(cd KernelSU-SukiSU-Nova && expr $(/usr/bin/git rev-list --count HEAD) + 40000 - 2815)
-          git clone -b legacy https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
-          KSU_NEXT_VERSION=$(cd KernelSU-Next && expr $(/usr/bin/git rev-list --count HEAD) + 30000)
-          git clone -b main https://github.com/Baka-SU/BakaSU.git KernelSU-BakaSU
-          KSU_RESUKISU_VERSION=$(cd KernelSU-BakaSU && expr $(/usr/bin/git rev-list --count HEAD) + 30000 + 700)
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
           echo "$RELEASE_NOTES" >> $GITHUB_ENV
-          echo "[KernelSU-xxKSU](https://github.com/backslashxx/KernelSU) Version: $KSU_XXKSU_VERSION " >> $GITHUB_ENV
-          echo "[KernelSU-rsuntk](https://github.com/rsuntk/KernelSU) Version: $KSU_RSUNTK_VERSION " >> $GITHUB_ENV
-          echo "[KernelSU-SukiSU-Nova](https://github.com/SukiSU-Nova/SukiSU-Nova) Version: $KSU_SUKISU_ULTRA_VERSION " >> $GITHUB_ENV
-          echo "[KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) Version: $KSU_NEXT_VERSION " >> $GITHUB_ENV
-          echo "[KernelSU-BakaSU](https://github.com/Baka-SU/BakaSU) Version: $KSU_RESUKISU_VERSION " >> $GITHUB_ENV
-          echo "[KernelSU-ReSukiSU-CI](https://github.com/cctv18/ReSukiSU_CI) Version: $KSU_RESUKISU_VERSION " >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       - name: Create GitHub Release
