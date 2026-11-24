@@ -1,4 +1,4 @@
-name: Build Kernel (BuildFix v2)
+name: Build Kernel (KSU-Next)
 permissions:
   contents: write
   actions: write
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-merlin:
-    name: "Redmi 10X 4G (MIUI 12.5.3 / A11) - BuildFix v2"
+    name: "Redmi 10X 4G (MIUI 12.5.3 / A11) - KSU-Next"
     strategy:
       fail-fast: false
     uses: ./.github/workflows/build-merlin-miui1253-a11.yml
