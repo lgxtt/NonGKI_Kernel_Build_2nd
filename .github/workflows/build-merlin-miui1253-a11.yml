@@ -1,4 +1,4 @@
-name: Build Merlin MIUI 12.5.3.0 Kernel (A11) - LinkFix
+name: Build Merlin MIUI 12.5.3.0 Kernel (A11)
 on:
   workflow_call:
   workflow_dispatch:
@@ -7,7 +7,7 @@ env:
   # ---------- 设备标识与产物命名 ----------
   DEVICE_NAME: "merlin"
   DEVICE_CODENAME: "merlin"
-  ROM_TEXT: "miui_12.5.3_a11_linkfix"       # 第七版（LLD 链接修复：relocation truncated）
+  ROM_TEXT: "miui_12.5.3_a11_wifibtfix"     # 第八版（补回 IKCONFIG 提取丢失的 WiFi/蓝牙驱动配置）
 
   # ---------- ★ 编译修复①：原厂 defconfig 用"直链文本"而非从 boot 现场提取 ----------
   # 【为什么改】第三版用 DEFCONFIG_FROM_BOOT: true，但框架的 build-ready 里是
@@ -53,7 +53,7 @@ env:
   # 【如何生效】内核 Makefile: `ld-name = $(shell $(LD) -v | grep LLD)`，
   #   传 LD=ld.lld → ld-name=lld → 触发 `KBUILD_CFLAGS += -fuse-ld=lld` → 用 LLD 链接。
   #   proton-clang 自带 ld.lld，PATH 已含 clang-custom/bin（框架已设置）。
-  EXTRA_CMDS: "LOCALVERSION=-Merlin-12.5.3-LinkFix LD=ld.lld"   # ← 关键：追加 LD=ld.lld
+  EXTRA_CMDS: "LOCALVERSION=-Merlin-12.5.3-WifiBtFix LD=ld.lld"   # ← 保留 LLD 链接修复 + 新版本标识
   GCC_GNU: false
   GCC_64_SOURCE: ""
   GCC_64_BRANCH: ""
@@ -123,7 +123,7 @@ env:
 
 jobs:
   build-kernel:
-    name: Redmi 10X 4G (MIUI 12.5.3 / A11) LinkFix
+    name: Redmi 10X 4G (MIUI 12.5.3 / A11) WifiBtFix
     runs-on: ubuntu-24.04
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
@@ -157,10 +157,39 @@ jobs:
         uses: ./.github/workflows/patch-susfs
       - name: 🔗 Patch for no-kprobe
         uses: ./.github/workflows/patch-no-kprobe
-      - name: 🪛 Extra Kernel Options (K419 optimizations + BuildFix + KSU-Next + LinkFix)
+      - name: 🪛 Extra Kernel Options (K419 + BuildFix + KSU-Next + LinkFix + WifiBtFix)
         run: |
           cd $GITHUB_WORKSPACE/device_kernel
           DEFCONFIG="arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}"
+
+          # ============ 【第八版核心修复 WifiBtFix】补回 IKCONFIG 提取丢失的 connectivity 配置 ============
+          # 【症状】LinkFix 能开机，但 WiFi 打不开、蓝牙打不开。
+          # 【根因】我们用的 defconfig 是从原厂 boot.img 的 IKCONFIG 提取的，提取过程丢失了 3 个关键项。
+          #   对比内核源码官方 merlin_defconfig(eleven) 确认，LK 包缺以下几项：
+          #     CONFIG_MTK_COMBO_BT=y      -> MTK combo 蓝牙驱动（漏了 => 蓝牙起不来）
+          #     CONFIG_BT=y                -> Linux 蓝牙协议栈（漏了 => 蓝牙起不来）
+          #     CONFIG_WLAN_DRV_BUILD_IN=y -> WiFi 驱动内建进内核（漏了 + PACK_KMODULES=false => WiFi 起不来）
+          #   原厂提取的 defconfig 里 MTK_COMBO_BT / BT 是 "# ... is not set"，
+          #   WLAN_DRV_BUILD_IN 则完全不存在，所以三样驱动都没有被编译进内核。
+          # 【修复】编译前把它们补回 defconfig（幂等：已是 y 则跳过，否则替换 not-set 或直接追加）。
+          echo "[+] WifiBtFix: restore connectivity config (WiFi/BT/FM)..."
+          # 蓝牙 combo 驱动
+          grep -q '^CONFIG_MTK_COMBO_BT=y' "$DEFCONFIG" \
+            || sed -i 's/^# CONFIG_MTK_COMBO_BT is not set/CONFIG_MTK_COMBO_BT=y/' "$DEFCONFIG"
+          grep -q '^CONFIG_MTK_COMBO_BT=y' "$DEFCONFIG" || echo 'CONFIG_MTK_COMBO_BT=y' >> "$DEFCONFIG"
+          # 蓝牙协议栈
+          grep -q '^CONFIG_BT=y' "$DEFCONFIG" \
+            || sed -i 's/^# CONFIG_BT is not set/CONFIG_BT=y/' "$DEFCONFIG"
+          grep -q '^CONFIG_BT=y' "$DEFCONFIG" || echo 'CONFIG_BT=y' >> "$DEFCONFIG"
+          # WiFi 驱动内建
+          grep -q '^CONFIG_WLAN_DRV_BUILD_IN=y' "$DEFCONFIG" || echo 'CONFIG_WLAN_DRV_BUILD_IN=y' >> "$DEFCONFIG"
+          # 校验：三项必须都在且为 y
+          echo "[+] WifiBtFix connectivity config check:"
+          grep -E '^CONFIG_(MTK_COMBO_BT|BT|WLAN_DRV_BUILD_IN)=y' "$DEFCONFIG"
+          for MUST in CONFIG_MTK_COMBO_BT CONFIG_BT CONFIG_WLAN_DRV_BUILD_IN; do
+            grep -q "^${MUST}=y" "$DEFCONFIG" || { echo "[-] FATAL: $MUST missing, abort"; exit 1; }
+          done
+          echo "[+] WifiBtFix: connectivity config OK"
 
           # [K419 / OLD_ANDROID_SUPPORT] 原厂 defconfig 已含 CONFIG_SDCARD_FS=y，
           # 这里做幂等兜底，防止个别提取结果缺失。
