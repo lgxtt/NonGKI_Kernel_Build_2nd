@@ -1,4 +1,4 @@
-name: Build Merlin MIUI 12.5.3.0 Kernel (A11) - BuildFix
+name: Build Merlin MIUI 12.5.3.0 Kernel (A11) - BuildFix v2
 on:
   workflow_call:
   workflow_dispatch:
@@ -7,7 +7,7 @@ env:
   # ---------- 设备标识与产物命名 ----------
   DEVICE_NAME: "merlin"
   DEVICE_CODENAME: "merlin"
-  ROM_TEXT: "miui_12.5.3_a11_buildfix"       # 第四版（编译修复版）标识
+  ROM_TEXT: "miui_12.5.3_a11_buildfix_v2"    # 第五版（绕过框架路径bug）
 
   # ---------- ★ 编译修复①：原厂 defconfig 用"直链文本"而非从 boot 现场提取 ----------
   # 【为什么改】第三版用 DEFCONFIG_FROM_BOOT: true，但框架的 build-ready 里是
@@ -17,17 +17,21 @@ env:
   #   触发 mtk_printk_ctrl.h 的 static/non-static 声明冲突。
   # 【本版做法】把我们已提取好的原厂 4.14.186 defconfig 文本（boot/merlin_stock_defconfig.txt，
   #   5153 行，含 CONFIG_MTK_PRINTK_UART_CONSOLE=y / CONFIG_SDCARD_FS=y）放进仓库，
-  #   用 DEFCONFIG_SOURCE 直链让框架 curl 下载，100% 生效。
-  DEFCONFIG_NAME: "merlin_stock_defconfig"   # 下载后写入 configs/ 的文件名
-  DEFCONFIG_FROM_BOOT: false                 # ← 关键：关闭失效的现场提取
+  #   由下方自定义步骤用绝对路径下载到正确位置（DEFCONFIG_SOURCE 必须留空，见下）。
+  DEFCONFIG_NAME: "merlin_stock_defconfig"   # 最终写入 configs/ 的文件名
+  DEFCONFIG_FROM_BOOT: false
   DEFCONFIG_ORIGIN_IMAGE: ""
-  DEFCONFIG_SOURCE: "https://raw.githubusercontent.com/lgxtt/NonGKI_Kernel_Build_2nd/merlin-stock-aligned/boot/merlin_stock_defconfig.txt"  # ← 关键：原厂defconfig直链
+  # ★ 关键：这里必须留空！框架的 Get DEFCONFIG 步骤有路径 bug：
+  #   它先 `cd device_kernel`，却把下载目标写成 device_kernel/arch/... → 变成
+  #   device_kernel/device_kernel/... 不存在的嵌套目录 → curl (23) 失败（你这次的报错）。
+  #   留空可让该 bug 步骤整段跳过，改由下面自定义步骤用绝对路径下载到正确位置。
+  DEFCONFIG_SOURCE: ""
+  STOCK_DEFCONFIG_URL: "https://raw.githubusercontent.com/lgxtt/NonGKI_Kernel_Build_2nd/merlin-stock-aligned/boot/merlin_stock_defconfig.txt"  # 原厂defconfig直链（自定义步骤用）
 
   # ---------- ★ 完整 boot.img 打包（继承原厂 cmdline/地址/页大小/dtb）----------
   PACK_METHOD: "MKBOOTIMG"
-  # BOOT_SOURCE 必须是 GitHub Actions 能下载的 URL。两种做法二选一：
-  #   A) 把 boot/merlin_stock_boot.img 放进本仓库，用 raw.githubusercontent.com 链接（推荐）
-  #   B) 用任意公网可访问的图片外链（注意隐私与有效期）
+  # BOOT_SOURCE 必须是 GitHub Actions 能下载的 URL（已按你的实际仓库填好）。
+  # 你日志里用的是 boot/boot.img，这里保持一致；若文件名不同请自行核对。
   BOOT_SOURCE: "https://raw.githubusercontent.com/lgxtt/NonGKI_Kernel_Build_2nd/merlin-stock-aligned/boot/boot.img"
 
   # ---------- 内核源码 ----------
@@ -40,7 +44,7 @@ env:
   CLANG_SOURCE: "https://github.com/kdrag0n/proton-clang.git"
   CLANG_BRANCH: "master"
   CUSTOM_CMDS: "CLANG_TRIPLE=aarch64-linux-gnu- SUBARCH=arm64"
-  EXTRA_CMDS: "LOCALVERSION=-Merlin-12.5.3-BuildFix"
+  EXTRA_CMDS: "LOCALVERSION=-Merlin-12.5.3-BuildFix-v2"
   GCC_GNU: false
   GCC_64_SOURCE: ""
   GCC_64_BRANCH: ""
@@ -100,7 +104,7 @@ env:
 
 jobs:
   build-kernel:
-    name: Redmi 10X 4G (MIUI 12.5.3 / A11) BuildFix
+    name: Redmi 10X 4G (MIUI 12.5.3 / A11) BuildFix v2
     runs-on: ubuntu-24.04
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
@@ -113,6 +117,23 @@ jobs:
         uses: ./.github/workflows/build-env
       - name: ⚙️ Get necessary tools
         uses: ./.github/workflows/build-ready
+      # ★ 绕过框架 Get DEFCONFIG 的路径 bug：用绝对路径直接下载原厂 defconfig。
+      - name: 📥 Place stock defconfig (bypass framework path bug)
+        run: |
+          set -e
+          DEST="$GITHUB_WORKSPACE/device_kernel/arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}"
+          mkdir -p "$(dirname "$DEST")"
+          echo "[+] Downloading stock defconfig -> $DEST"
+          curl -fL --retry 4 --retry-delay 2 --retry-all-errors "${{ env.STOCK_DEFCONFIG_URL }}" -o "$DEST"
+          LINES=$(wc -l < "$DEST")
+          echo "[+] defconfig lines: $LINES"
+          if [ "$LINES" -lt 1000 ]; then
+            echo "[-] ERROR: defconfig too small, download may have failed"
+            exit 1
+          fi
+          grep -q '^CONFIG_MTK_PRINTK_UART_CONSOLE=y' "$DEST" && echo "[+] MTK_PRINTK_UART_CONSOLE=y OK"
+          grep -q '^CONFIG_SDCARD_FS=y' "$DEST" && echo "[+] SDCARD_FS=y OK"
+          echo "[+] Stock defconfig placed successfully."
       - name: 🪝 Patch Kernel of SUSFS
         uses: ./.github/workflows/patch-susfs
       - name: 🔗 Patch for no-kprobe

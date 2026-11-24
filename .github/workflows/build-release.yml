@@ -1,4 +1,4 @@
-name: Build and Release Kernel (BuildFix)
+name: Build and Release Kernel (BuildFix v2)
 permissions:
   contents: write
   actions: write
@@ -37,7 +37,7 @@ jobs:
       REPO_OWNER: lgxtt                       # ← 按你的实际情况核对（日志里你的仓库是 lgxtt）
       REPO_NAME: NonGKI_Kernel_Build_2nd      # ← 按你的实际情况核对
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_NAME: "Pre-built BuildFix (SUSFS off, stock defconfig)"
+      RELEASE_NAME: "Pre-built BuildFix v2 (SUSFS off, stock defconfig)"
       RELEASE_NOTES: |
         Below is the codename reference table. Please select the image or archive you need based on this table.
 
@@ -45,8 +45,8 @@ jobs:
         |----------|----------|----------|----------|----------|----------|----------|----------|----------|
         | Redmi 10X 4G / Redmi Note 9 | merlin | 4.14 (stock defconfig) | MIUI 12.5.3.0 | 11 | MKBOOTIMG | BakaSU | ❌ off | stock defconfig text (direct URL) |
 
-        - This is the **BuildFix** build: fixes two compile errors of the Stock Aligned version.
-        - Fix 1: use DEFCONFIG_SOURCE (direct URL to extracted 4.14.186 stock defconfig) instead of the broken DEFCONFIG_FROM_BOOT (framework's `-f URL` check always fails).
+        - This is the **BuildFix v2** build: fixes the Stock Aligned compile errors AND the framework path bug.
+        - Fix 1: custom step downloads extracted 4.14.186 stock defconfig by ABSOLUTE path (framework's Get DEFCONFIG hardcodes a broken nested path device_kernel/device_kernel/... -> curl (23); DEFCONFIG_SOURCE is left empty to skip it).
         - Fix 2: SUSFS disabled by default (v1.5.5 patch produced .rej on eleven/4.14.248 -> task_mmu.c SUSFS_IS_INODE_* implicit declaration). KernelSU root still works.
         - Full boot.img via MKBOOTIMG, inherits stock cmdline/addresses/dtb. OLD_ANDROID_SUPPORT applied.
         - Flash via fastboot; AVB must be disabled first (see README).
