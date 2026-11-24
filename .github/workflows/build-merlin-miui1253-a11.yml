@@ -1,0 +1,159 @@
+name: Build Merlin MIUI 12.5.3.0 Kernel (A11) - Stock Aligned
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  # ---------- 设备标识与产物命名 ----------
+  DEVICE_NAME: "merlin"
+  DEVICE_CODENAME: "merlin"
+  ROM_TEXT: "miui_12.5.3_a11_stockaligned"   # 第三版标识
+
+  # ---------- ★ 原厂对齐：从 boot.img 提取真实 defconfig（本版核心）----------
+  # 框架会用 extract-ikconfig 从下面 BOOT_SOURCE 指向的原厂 boot 中，
+  # 抽出原机真实的 4.14.186 defconfig（5153 行），覆盖 KERNEL_SOURCE 自带的 defconfig。
+  # 这样彻底消除"配置里假设 4.14.248 vs 原机 4.14.186"的版本不匹配问题。
+  DEFCONFIG_NAME: "merlin_stock_defconfig"   # 提取后写入的文件名（可自定义）
+  DEFCONFIG_FROM_BOOT: true
+  DEFCONFIG_ORIGIN_IMAGE: ""                 # 留空 → 走 BOOT_SOURCE 提取分支
+  DEFCONFIG_SOURCE: ""
+
+  # ---------- ★ 完整 boot.img 打包（继承原厂 cmdline/地址/页大小/dtb）----------
+  PACK_METHOD: "MKBOOTIMG"
+  # BOOT_SOURCE 必须是 GitHub Actions 能下载的 URL。两种做法二选一：
+  #   A) 把 boot/merlin_stock_boot.img 放进本仓库，用 raw.githubusercontent.com 链接（推荐）
+  #   B) 用任意公网可访问的图片外链（注意隐私与有效期）
+  BOOT_SOURCE: "https://raw.githubusercontent.com/lgxtt/NonGKI_Kernel_Build_2nd/merlin-stock-aligned/boot/boot.img"
+
+  # ---------- 内核源码 ----------
+  # 注意：本版用原厂 defconfig，内核源码仍需提供 4.14 源码树用于编译。
+  # eleven 分支（4.14.248）与原厂 4.14.186 同属 4.14，配原厂 defconfig 兼容性最佳。
+  KERNEL_SOURCE: "https://github.com/Redmi-MT6768/android_kernel_xiaomi_mt6768.git"
+  KERNEL_BRANCH: "eleven"
+
+  # ---------- 工具链（对齐原厂 Clang 11 系；kdrag0n proton-clang 为 AOSP Clang 11 衍生）----------
+  CLANG_SOURCE: "https://github.com/kdrag0n/proton-clang.git"
+  CLANG_BRANCH: "master"
+  CUSTOM_CMDS: "CLANG_TRIPLE=aarch64-linux-gnu- SUBARCH=arm64"
+  EXTRA_CMDS: "LOCALVERSION=-Merlin-12.5.3-StockAligned"
+  GCC_GNU: false
+  GCC_64_SOURCE: ""
+  GCC_64_BRANCH: ""
+  GCC_32_SOURCE: ""
+  GCC_32_BRANCH: ""
+
+  # ---------- KernelSU 与 SUSFS ----------
+  # 提醒：原厂内核 4.14.186 + 提取的 defconfig，SUSFS 补丁针对 4.14 大版本通用，
+  # 但原厂源码行号可能与补丁上下文略有差异。若编译报 .rej，先把 SUSFS_ENABLE 改 false
+  # 确保能开机，再决定是否换更匹配的补丁。
+  KERNELSU_AUTO_GET: "true"
+  KERNELSU_AUTO_FORK: "bakasu"
+  KERNELSU_SOURCE: ""
+  KERNELSU_BRANCH: ""
+  KERNELSU_METHOD: "shell"
+  SUSFS_ENABLE: true
+  SUSFS_FIXED: false
+  HOOK_METHOD: "syscall"
+  SKIP_PATCH: false
+  BUILD_DEBUGGER: false                      # 编译失败时改为 true，会打包 .rej 便于排查
+  PATCHES_SOURCE: "JackA1ltman/NonGKI_Kernel_Patches"
+  PATCHES_BRANCH: "mi_kernel"
+  SUSFS_FOLDER_FIXED: ""
+  SUSFS_PATCH_FIXED: ""
+
+  # ---------- 功能模块开关 ----------
+  REKERNEL_ENABLE: "false"
+  DROIDSPACES_ENABLE: "false"
+  NOMOUNT_ENABLE: "false"
+  FGETPRIORITY_ENABLE: "false"
+  VPNHIDE_ENABLE: "false"
+  KPM_ENABLE: "false"
+  KPM_INLINE: "false"
+  KPM_KPATCH_NEXT: "false"
+  BASEBAND_GUARD_ENABLE: "false"
+  BASEBAND_GUARD_BOOT: "false"
+  GENERATE_DTB: "false"
+  GENERATE_CHIP: "mediatek"
+  BUILD_OTHER_CONFIG: "false"
+  MERGE_CONFIG_FILES: ""
+
+  # ---------- ★ K419 机型优化（原厂配置已含 SDCARD_FS=y，此处幂等兜底）----------
+  OLD_ANDROID_SUPPORT: "true"
+  FIX_WIFI_SPEED: "false"
+
+  # ---------- 环境 ----------
+  PACK_KMODULES: "false"
+  NEED_DTBO: false
+  NEED_SAFE_DTBO: false
+  PYTHON_VERSION: "3"
+  FREE_MORE_SPACE: "false"
+
+jobs:
+  build-kernel:
+    name: Redmi 10X 4G (MIUI 12.5.3 / A11) Stock Aligned
+    runs-on: ubuntu-24.04
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+    steps:
+      - name: ⏰ Checkout repository
+        uses: actions/checkout@v6
+      - name: ⌛️ Compilation environment preparation
+        uses: ./.github/workflows/build-env
+      - name: ⚙️ Get necessary tools
+        uses: ./.github/workflows/build-ready
+      - name: 🪝 Patch Kernel of SUSFS
+        uses: ./.github/workflows/patch-susfs
+      - name: 🔗 Patch for no-kprobe
+        uses: ./.github/workflows/patch-no-kprobe
+      - name: 🪛 Extra Kernel Options (K419 optimizations)
+        run: |
+          cd $GITHUB_WORKSPACE/device_kernel
+          DEFCONFIG="arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}"
+
+          # [K419 / OLD_ANDROID_SUPPORT] 原厂 defconfig 已含 CONFIG_SDCARD_FS=y，
+          # 这里做幂等兜底，防止个别提取结果缺失。
+          if [ "${{ env.OLD_ANDROID_SUPPORT }}" = "true" ]; then
+            echo "[+] K419/OLD_ANDROID_SUPPORT check (stock defconfig should already have sdcardfs)"
+            if [ -f fs/sdcardfs/Kconfig ]; then
+              sed -i '/^config SDCARD_FS$/,/^$/ s/^\([[:space:]]*\)default n$/\1default y/' fs/sdcardfs/Kconfig
+            fi
+            grep -q '^CONFIG_SDCARD_FS=y' "$DEFCONFIG" || echo 'CONFIG_SDCARD_FS=y' >> "$DEFCONFIG"
+            grep -q '^CONFIG_MMC_CRYPTO_LEGACY=y' "$DEFCONFIG" || echo 'CONFIG_MMC_CRYPTO_LEGACY=y' >> "$DEFCONFIG"
+            echo "[+] sdcardfs / mmc crypto legacy OK"
+          fi
+
+          # [K419 / FIX_WIFI_SPEED] 默认关闭
+          if [ "${{ env.FIX_WIFI_SPEED }}" = "true" ]; then
+            echo "[+] K419/FIX_WIFI_SPEED: rollback connectivity"
+            CONN_DIR="drivers/misc/mediatek/connectivity"
+            if [ -d "$CONN_DIR" ]; then
+              rm -rf "$CONN_DIR"
+              git clone https://github.com/Jbub5/connectivity.git --depth=1 "$CONN_DIR"
+            fi
+          fi
+
+          # proton-clang host ld 改名（保留踩坑处理）
+          if [ -f "$GITHUB_WORKSPACE/clang-custom/bin/ld" ]; then
+            mv "$GITHUB_WORKSPACE/clang-custom/bin/ld" "$GITHUB_WORKSPACE/clang-custom/bin/ld.proton.host.bak"
+            echo "[+] sidelined proton host ld"
+          fi
+      - name: 🧰 Patch Kernel of Re:Kernel
+        uses: ./.github/workflows/patch-rekernel
+      - name: 💿 Patch Kernel of Droidspaces
+        uses: ./.github/workflows/patch-droidspaces
+      - name: 🔒 Patch Kernel of Baseband Guard
+        uses: ./.github/workflows/patch-baseband-guard
+      - name: 🛡️ Patch Kernel of NoMount
+        uses: ./.github/workflows/patch-nomount
+      - name: ⛔ Patch Kernel of fgetpriority
+        uses: ./.github/workflows/patch-fgetpriority
+      - name: 🛜 Patch Kernel of VPNHide
+        uses: ./.github/workflows/patch-vpnhide
+      - name: 🚀 Build Process
+        uses: ./.github/workflows/build-process
+      - name: 🔩 Pack Process
+        uses: ./.github/workflows/pack-process
+      - name: ✏️ Upload Artifacts
+        uses: ./.github/workflows/upload-files

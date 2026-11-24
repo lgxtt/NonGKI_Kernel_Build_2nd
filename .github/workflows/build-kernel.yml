@@ -1,22 +1,14 @@
-name: Build Kernel
-
+name: Build Kernel (Stock Aligned)
 permissions:
   contents: write
   actions: write
-
 on:
   workflow_call:
 
 jobs:
-  # OPPO
-  ## Oneplus
-  build-device-name-systemos-android-version:
-    name: "Device Name (SystemOS Android Version) (Kernel Name)"
+  build-merlin:
+    name: "Redmi 10X 4G (MIUI 12.5.3 / A11) - Stock Aligned"
     strategy:
-      fail-fast: true
-    uses: ./.github/workflows/build-sample.yml
+      fail-fast: false
+    uses: ./.github/workflows/build-merlin-miui1253-a11.yml
     secrets: inherit
-
-  # Xiaomi
-
-  ## Redmi
